@@ -354,6 +354,9 @@ async def main() -> None:
     )
 
     settings = SatelliteSettings(
+        # --- Add this line ---
+        uri=args.uri, 
+        # --- End added line ---
         mic=MicSettings(
             uri=args.mic_uri,
             command=split_command(args.mic_command),
@@ -445,7 +448,13 @@ async def main() -> None:
     _LOGGER.info("Ready")
 
     # Start server
-    server = AsyncServer.from_uri(args.uri)
+    #server = AsyncServer.from_uri(args.uri)
+
+    # NEW lines: Force internal server to use a local Unix socket
+    internal_server_path = f"/tmp/wyoming_satellite_{args.name.replace(' ', '_')}.sock" 
+    _LOGGER.info(f"Setting up internal command server at: unix://{internal_server_path}")
+    server = AsyncServer.from_uri(f"unix://{internal_server_path}")
+    # --- End of changes for internal server ---
 
     if (not args.no_zeroconf) and isinstance(server, AsyncTcpServer):
         from wyoming.zeroconf import register_server

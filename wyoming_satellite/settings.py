@@ -211,6 +211,6 @@ class SatelliteSettings:
     timer: TimerSettings = field(default_factory=TimerSettings)
 
     restart_timeout: float = 5.0
-
+    uri: Optional[str] = None # For the main gateway connection
     debug_recording_dir: Optional[Path] = None
     """Path to directory where debug audio is written."""

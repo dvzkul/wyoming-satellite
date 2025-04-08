@@ -81,6 +81,11 @@ class SatelliteBase:
         self._state_changed = asyncio.Event()
         self._writer: Optional[asyncio.StreamWriter] = None
 
+        # --- Add these lines ---
+        self._main_client: Optional[AsyncClient] = None 
+        self._main_reader_task: Optional[asyncio.Task] = None
+        # --- End of added lines --
+
         self._mic_task: Optional[asyncio.Task] = None
         self._mic_webrtc: Optional[Callable[[bytes], bytes]] = None
         self._snd_task: Optional[asyncio.Task] = None
@@ -230,6 +235,23 @@ class SatelliteBase:
     async def _start(self) -> None:
         """Connect to services."""
         self.state = State.STARTING
+        # --- Add this block ---
+        # Connect to the main gateway specified in --uri
+        # Ensure SatelliteSettings has a 'uri' field populated from args.uri in __main__.py
+        if self.settings.uri: 
+            # Start the main client loop as a background task
+            self._main_reader_task = asyncio.create_task(
+                self._main_client_loop(self.settings.uri), 
+                name="main_client_loop"
+            )
+        else:
+            _LOGGER.critical("Main gateway URI (--uri) is not set in settings! Cannot connect.")
+            # Optionally, set state to STOPPED or raise an error
+            self.state = State.STOPPED # Stop if no main URI
+            return 
+        # --- End of added block ---
+
+
         await self._connect_to_services()
         self.state = State.STARTED
         await self.started()
@@ -241,6 +263,27 @@ class SatelliteBase:
         """Disconnect from services."""
         self.server_id = None
         self._writer = None
+
+        # --- Add this block ---
+        # Cancel main client reader task first
+        if self._main_reader_task is not None:
+             self._main_reader_task.cancel()
+             try:
+                 await self._main_reader_task
+             except asyncio.CancelledError:
+                 pass # Expected
+             except Exception:
+                 _LOGGER.exception("Error during main reader task cancellation")
+             self._main_reader_task = None
+
+        # Disconnect main client
+        if self._main_client is not None:
+             await self._main_client.disconnect()
+             self._main_client = None
+        
+        # Ensure writer is cleared (clear_server also disables ping)
+        await self.clear_server() 
+        # --- End of added block ---
 
         await self._disconnect_from_services()
         self._disable_ping()
@@ -967,7 +1010,54 @@ class SatelliteBase:
     async def update_info(self, info: Info) -> None:
         pass
 
+    # --- Add this entire method to SatelliteBase class ---
+    async def _main_client_loop(self, uri: str) -> None:
+        """Manages connection and reads events FROM the main gateway."""
+        while self.is_running:
+            try:
+                _LOGGER.info(f"Connecting to main gateway at {uri}...")
+                # Use AsyncClient for generality (handles tcp:// and unix://)
+                self._main_client = AsyncClient.from_uri(uri) 
+                await self._main_client.connect()
+                
+                # Successfully connected, set the server writer etc. using existing methods
+                peer_name = self._main_client.writer.get_extra_info("peername") if self._main_client.writer else uri
+                server_id = repr(peer_name)
+                # Critical: Link the client's writer so event_to_server works
+                await self.set_server(server_id, self._main_client.writer) 
 
+                # Start reading events from the gateway
+                while self.is_running:
+                    event = await self._main_client.read_event()
+                    if event is None:
+                        _LOGGER.warning("Main gateway disconnected.")
+                        break # Break inner loop to trigger reconnect
+
+                    # Process event received FROM gateway using existing method
+                    await self.event_from_server(event) 
+
+            except ConnectionRefusedError:
+                _LOGGER.error(f"Connection refused by main gateway at {uri}.")
+            except asyncio.TimeoutError:
+                 _LOGGER.error(f"Timeout connecting to main gateway at {uri}.")
+            except asyncio.CancelledError:
+                 _LOGGER.info("Main client loop cancelled.")
+                 break # Exit outer loop if cancelled
+            except Exception as e:
+                _LOGGER.exception(f"Error in main gateway client loop ({uri}): {e}")
+            finally:
+                # Ensure cleanup happens before retrying
+                await self.clear_server() # Clear writer etc.
+                if self._main_client:
+                     await self._main_client.disconnect()
+                     self._main_client = None
+
+            if self.is_running:
+                 # Use the restart_timeout setting from SatelliteSettings if available, else default
+                 restart_delay = getattr(self.settings, 'restart_timeout', 5.0)
+                 _LOGGER.info(f"Reconnecting to main gateway in {restart_delay} seconds...")
+                 await asyncio.sleep(restart_delay) 
+    # --- End of added method ---
 # -----------------------------------------------------------------------------
 
 
