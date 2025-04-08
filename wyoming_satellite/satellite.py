@@ -1021,10 +1021,10 @@ class SatelliteBase:
                 await self._main_client.connect()
                 
                 # Successfully connected, set the server writer etc. using existing methods
-                peer_name = self._main_client.writer.get_extra_info("peername") if self._main_client.writer else uri
+                peer_name = self._main_client._writer.get_extra_info("peername") if self._main_client._writer else uri
                 server_id = repr(peer_name)
-                # Critical: Link the client's writer so event_to_server works
-                await self.set_server(server_id, self._main_client.writer) 
+                # Critical: Pass the internal writer to set_server
+                await self.set_server(server_id, self._main_client._writer) 
 
                 # Start reading events from the gateway
                 while self.is_running:
