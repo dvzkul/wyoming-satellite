@@ -860,6 +860,7 @@ class SatelliteBase:
         """Called when audio stopped playing"""
         await run_event_command(self.settings.event.played)
         await self.forward_event(Played().event())
+        _LOGGER.info("Audio played")
 
     async def trigger_transcript(self, transcript: Transcript) -> None:
         """Called when speech-to-text text is received."""
@@ -881,10 +882,12 @@ class SatelliteBase:
     async def trigger_tts_start(self) -> None:
         """Called when text-to-speech audio starts."""
         await run_event_command(self.settings.event.tts_start)
+        _LOGGER.info("TTS started")
 
     async def trigger_tts_stop(self) -> None:
         """Called when text-to-speech audio stops."""
         await run_event_command(self.settings.event.tts_stop)
+        _LOGGER.info("TTS stopped")
 
     async def trigger_error(self, error: Error) -> None:
         """Called when an error occurs on the server."""
