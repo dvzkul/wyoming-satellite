@@ -18,27 +18,37 @@ _LOGGER = logging.getLogger()
 async def run_event_command(
     command: Optional[List[str]], command_input: Optional[Union[str, Eventable]] = None
 ) -> None:
-    """Run a custom event command with optional input."""
+    """Run a custom event command with optional input and log output."""
     if not command:
         return
 
     if isinstance(command_input, Eventable):
-        # Convert event to JSON
         event_dict = command_input.event().to_dict()
         command_input = json.dumps(event_dict, ensure_ascii=False)
 
     _LOGGER.debug("Running %s", command)
     program, *program_args = command
     proc = await asyncio.create_subprocess_exec(
-        program, *program_args, stdin=asyncio.subprocess.PIPE
+        program,
+        *program_args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     assert proc.stdin is not None
 
+    # Send input (if any)
     if command_input:
-        await proc.communicate(input=command_input.encode("utf-8"))
+        stdout_data, _ = await proc.communicate(input=command_input.encode("utf-8"))
     else:
         proc.stdin.close()
-        await proc.wait()
+        stdout_data, _ = await proc.communicate()
+
+    # Log the combined output
+    if stdout_data:
+        for line in stdout_data.decode().splitlines():
+            _LOGGER.debug("SND-COMMAND OUTPUT: %s", line)
+
 
 
 def get_mac_address() -> str:
